@@ -10,8 +10,10 @@ use anyhow::Context as _;
 use opentelemetry::{global, KeyValue};
 #[cfg(feature = "otel")]
 use opentelemetry_otlp::WithExportConfig;
+use std::sync::Mutex;
 use tracing::{Event, Subscriber};
 use tracing_flame::FlameLayer;
+use tracing_subscriber::filter::FilterFn;
 use tracing_subscriber::filter::LevelFilter;
 use tracing_subscriber::fmt::format::{DefaultFields, Format, Full, Json, JsonFields, Writer};
 use tracing_subscriber::fmt::time::SystemTime;
@@ -188,42 +190,37 @@ pub fn configure_tracing(
     let otel_counter = meter
         .u64_counter("Wasmcloud u64_counter")
         .with_description("Counting the number of dropped lines")
-        .build()
-        .init();
+        .build();
 
     let mut error_counter = ErrorCounter::new();
-    let fmt = tracing_subscriber::fmt::layer()
-        .with_writer(stderr)
-        .with_ansi(ansi)
-        .with_filter(move |meta| {
-            error_counter.increment();
-
-            if error_counter.get_count() == 1 {
-                tracing::error!(
-                    "Dropped {} lines due to full buffer",
-                    error_counter.get_count()
-                );
-                otel_counter.add(1, &[]);
-            }
-            true
-        });
+    let error_counter = std::sync::Arc::new(Mutex::new(ErrorCounter::new()));
+    let counter_clone = error_counter.clone();
 
     let dispatch = if use_structured_logging {
-        registry
-            .with(
-                fmt.event_format(JsonOrNot::Json(Format::default().json()))
-                    .fmt_fields(JsonFields::new())
-                    .with_filter(log_level_filter),
-            )
-            .into()
+        let error_counter = std::sync::Arc::new(Mutex::new(ErrorCounter::new()));
+        let counter_clone = error_counter.clone();
+        let fmt_layer = tracing_subscriber::fmt::layer()
+            .with_writer(stderr)
+            .with_ansi(ansi)
+            .with_filter(FilterFn::new(move |meta| {
+                let mut counter = counter_clone.lock().unwrap();
+                counter.increment();
+
+                if counter.get_count() == 1 {
+                    tracing::error!("Dropped {} lines due to full buffer", counter.get_count());
+                    otel_counter.add(1, &[]);
+                }
+                true
+            }));
+        registry.with(fmt_layer).into()
     } else {
-        registry
-            .with(
-                fmt.event_format(JsonOrNot::Not(Format::default()))
-                    .fmt_fields(DefaultFields::new())
-                    .with_filter(log_level_filter),
-            )
-            .into()
+        let fmt_layer = tracing_subscriber::fmt::layer()
+            .event_format(JsonOrNot::Not(Format::default()))
+            .fmt_fields(DefaultFields::new())
+            .with_writer(stderr)
+            .with_ansi(ansi)
+            .with_filter(log_level_filter);
+        registry.with(fmt_layer).into()
     };
 
     Ok((
