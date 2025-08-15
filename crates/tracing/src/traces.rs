@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 #[cfg(feature = "otel")]
 use anyhow::Context as _;
-use opentelemetry::{global, KeyValue};
+use opentelemetry::global;
 #[cfg(feature = "otel")]
 use opentelemetry_otlp::WithExportConfig;
 use std::sync::Mutex;
@@ -15,7 +15,7 @@ use tracing::{Event, Subscriber};
 use tracing_flame::FlameLayer;
 use tracing_subscriber::filter::FilterFn;
 use tracing_subscriber::filter::LevelFilter;
-use tracing_subscriber::fmt::format::{DefaultFields, Format, Full, Json, JsonFields, Writer};
+use tracing_subscriber::fmt::format::{DefaultFields, Format, Full, Json, Writer};
 use tracing_subscriber::fmt::time::SystemTime;
 use tracing_subscriber::fmt::{FmtContext, FormatEvent, FormatFields};
 use tracing_subscriber::layer::SubscriberExt;
@@ -34,6 +34,7 @@ static LOG_PROVIDER: once_cell::sync::OnceCell<opentelemetry_sdk::logs::SdkLogge
 
 /// A struct that allows us to dynamically choose JSON formatting without using dynamic dispatch.
 /// This is just so we avoid any sort of possible slow down in logging code
+#[allow(dead_code)]
 enum JsonOrNot {
     Not(Format<Full, SystemTime>),
     Json(Format<Json, SystemTime>),
@@ -192,9 +193,8 @@ pub fn configure_tracing(
         .with_description("Counting the number of dropped lines")
         .build();
 
-    let mut error_counter = ErrorCounter::new();
     let error_counter = std::sync::Arc::new(Mutex::new(ErrorCounter::new()));
-    let counter_clone = error_counter.clone();
+    let _counter_clone = error_counter.clone();
 
     let dispatch = if use_structured_logging {
         let error_counter = std::sync::Arc::new(Mutex::new(ErrorCounter::new()));
@@ -202,7 +202,7 @@ pub fn configure_tracing(
         let fmt_layer = tracing_subscriber::fmt::layer()
             .with_writer(stderr)
             .with_ansi(ansi)
-            .with_filter(FilterFn::new(move |meta| {
+            .with_filter(FilterFn::new(move |_| {
                 let mut counter = counter_clone.lock().unwrap();
                 counter.increment();
 
