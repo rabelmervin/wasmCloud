@@ -1,0 +1,20 @@
+[package]
+name = "graphily-mysql-provider"
+version = "0.1.0"
+edition = "2021"
+description = "Graphily MySQL host plugin — HostPlugin for graphily:mysql/mysql-api, integrated into the wasmCloud wash host"
+
+[dependencies]
+sqlx        = { workspace = true, features = ["runtime-tokio", "tls-rustls", "mysql", "chrono"] }
+wash-runtime = { workspace = true }
+wasmtime    = { workspace = true, features = ["component-model"] }
+tokio       = { workspace = true, features = ["full"] }
+async-trait = { workspace = true }
+anyhow      = { workspace = true }
+thiserror   = { workspace = true }
+serde       = { workspace = true, features = ["derive"] }
+tracing     = { workspace = true }
+
+[dev-dependencies]
+tokio             = { workspace = true, features = ["full"] }
+pretty_assertions = "1.4"

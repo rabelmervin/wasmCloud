@@ -331,6 +331,7 @@ impl<T, Y> WorkloadTracker<T, Y> {
 }
 
 /// Locks an untrusted path to be within the given root directory.
+#[allow(dead_code)]
 pub(crate) fn lock_root(root: impl AsRef<Path>, untrusted: &str) -> Result<PathBuf, &'static str> {
     let path = Path::new(untrusted);
 

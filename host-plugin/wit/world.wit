@@ -1,0 +1,41 @@
+/// MySQL capability provider WIT world
+/// Package mirrors the canonical graphily:mysql@0.1.0 definition.
+package graphily:mysql@0.1.0;
+
+interface mysql-api {
+    record sql-result {
+        columns: list<string>,
+        rows: list<list<option<string>>>,
+        rows-affected: u64,
+        last-insert-id: option<u64>,
+    }
+
+    /// Execute a parameterized SELECT query
+    execute-query: func(
+        connection-url: string,
+        sql: string,
+        params: list<string>,
+    ) -> result<sql-result, string>;
+
+    /// Execute a parameterized INSERT / UPDATE / DELETE
+    execute-mutation: func(
+        connection-url: string,
+        sql: string,
+        params: list<string>,
+    ) -> result<sql-result, string>;
+
+    /// Execute multiple statements atomically in a transaction
+    execute-transaction: func(
+        connection-url: string,
+        statements: list<tuple<string, list<string>>>,
+    ) -> result<list<sql-result>, string>;
+
+    /// Test database connectivity
+    ping: func(connection-url: string) -> result<_, string>;
+}
+
+/// Host-side world: the host (wash-runtime plugin) fulfils these imports
+/// for any WASM component that imports graphily:mysql/mysql-api.
+world mysql-host {
+    import mysql-api;
+}
