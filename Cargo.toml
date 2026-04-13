@@ -9,6 +9,7 @@ members = [
     # Repo task runner (`cargo xtask`). Deliberately excluded from
     # default-members so normal builds/tests don't pull it in.
     "xtask",
+    "host-plugin",
 ]
 
 [workspace.package]
@@ -112,6 +113,7 @@ tar = { version = "0.4", default-features = false }
 toml = { version = "0.8", default-features = false, features = ["display"] }
 tempfile = { version = "3.15.0", default-features = false }
 testcontainers = { version = "0.27", default-features = false }
+thiserror = { version = "1", default-features = false }
 tokio = { version = "1.45.1", default-features = false, features = ["full"] }
 tokio-util = { version = "0.7", default-features = false }
 tokio-rustls = { version = "0.26", default-features = false }
@@ -134,6 +136,8 @@ wasmtime-wasi-http = { version = "47.0.4", default-features = false }
 wasmtime-wasi-tls = { version = "47.0.4", default-features = false }
 wit-component = { version = "0.254.0", default-features = false }
 wash-runtime = { path = "crates/wash-runtime", default-features = false }
+graphily-mysql-provider = { path = "host-plugin", default-features = false }
+sqlx = { version = "0.8", default-features = false }
 wat = { version = "1.254.0", default-features = false }
 zeroize = { version = "1.8", default-features = false, features = ["alloc"] }
 
