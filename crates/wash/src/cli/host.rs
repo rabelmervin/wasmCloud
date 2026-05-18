@@ -3,6 +3,7 @@ use std::{net::SocketAddr, path::PathBuf, sync::Arc, time::Duration};
 use anyhow::Context as _;
 use clap::Args;
 use graphily_mysql_provider::MysqlProvider;
+use graphily_compiler_provider::CompilerProvider;
 use tracing::info;
 use wash_runtime::{
     engine::Engine,
@@ -171,6 +172,7 @@ impl CliCommand for HostCommand {
                 &data_nats_client,
             )))?
             .with_plugin(Arc::new(MysqlProvider::new()))?
+            .with_plugin(Arc::new(CompilerProvider::new()))?
             .with_meters(Meters::new(ctx.enable_meters()));
 
         if let Some(postgres_url) = &self.postgres_url {

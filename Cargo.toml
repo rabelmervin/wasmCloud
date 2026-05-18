@@ -5,6 +5,7 @@ members = [
     "crates/wash-runtime",
     "crates/wash",
     "host-plugin",
+    "compiler-plugin",
 ]
 
 [workspace.package]
@@ -119,7 +120,8 @@ wasmtime-wasi-io = { version = "42", default-features = false }
 wasmtime-wasi-http = { version = "42", default-features = false }
 wit-component = { version = "0.244.0", default-features = false }
 wash-runtime = { path = "crates/wash-runtime", default-features = false }
-graphily-mysql-provider = { path = "host-plugin", default-features = false }
+graphily-mysql-provider     = { path = "host-plugin",     default-features = false }
+graphily-compiler-provider  = { path = "compiler-plugin", default-features = false }
 sqlx = { version = "0.8", default-features = false }
 wat = { version = "1.244.0", default-features = false }
 

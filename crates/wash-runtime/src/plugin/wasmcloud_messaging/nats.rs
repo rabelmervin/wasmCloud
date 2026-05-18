@@ -153,11 +153,26 @@ impl HostPlugin for NatsMessaging {
             extract_active_ctx,
         )?;
 
-        if interface.interfaces.iter().any(|i| i == "handler") {
+        let has_handler = interface.interfaces.iter().any(|i| i == "handler");
+        tracing::info!(
+            plugin = PLUGIN_MESSAGING_ID,
+            has_handler,
+            interfaces = ?interface.interfaces,
+            config = ?interface.config,
+            "on_workload_item_bind: messaging interface found"
+        );
+
+        if has_handler {
             let raw_subscriptions = match interface.config.get("subscriptions") {
                 Some(subs) => subs.split(',').map(|s| s.to_string()).collect(),
                 None => vec![],
             };
+
+            tracing::info!(
+                plugin = PLUGIN_MESSAGING_ID,
+                subscriptions = ?raw_subscriptions,
+                "on_workload_item_bind: registering subscriptions for component"
+            );
 
             let WorkloadItem::Component(component_handle) = component_handle else {
                 anyhow::bail!("Service can not be tracked");
@@ -183,12 +198,32 @@ impl HostPlugin for NatsMessaging {
         let (cancel_token, subjects) = {
             let lock = self.tracker.read().await;
             match lock.get_component_data(component_id) {
-                Some(data) => (data.cancel_token.clone(), data.subscriptions.clone()),
-                None => return Ok(()),
+                Some(data) => {
+                    tracing::info!(
+                        plugin = PLUGIN_MESSAGING_ID,
+                        component_id,
+                        subjects = ?data.subscriptions,
+                        "on_workload_resolved: found component data, setting up NATS subscriptions"
+                    );
+                    (data.cancel_token.clone(), data.subscriptions.clone())
+                }
+                None => {
+                    tracing::info!(
+                        plugin = PLUGIN_MESSAGING_ID,
+                        component_id,
+                        "on_workload_resolved: no tracker data found for component, skipping"
+                    );
+                    return Ok(());
+                }
             }
         };
 
         if subjects.is_empty() {
+            tracing::info!(
+                plugin = PLUGIN_MESSAGING_ID,
+                component_id,
+                "on_workload_resolved: subjects list is empty, skipping subscription"
+            );
             return Ok(());
         }
 
@@ -214,6 +249,7 @@ impl HostPlugin for NatsMessaging {
                 }
             };
 
+            tracing::info!(plugin = PLUGIN_MESSAGING_ID, subject, "subscribed to NATS subject");
             subscriptions.push(sub);
         }
 

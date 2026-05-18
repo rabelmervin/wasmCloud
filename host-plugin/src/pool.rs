@@ -9,6 +9,18 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
+/// Shared pool builder used by both `add` and `get_or_create`.
+///
+/// acquire_timeout: 30s — WSL2→Docker bridge can be slow; 3s caused pool
+/// timeouts when the connection needed to be re-established after an idle gap.
+/// idle_timeout: 5 min — prevents stale connections without churning the pool.
+fn pool_options() -> MySqlPoolOptions {
+    MySqlPoolOptions::new()
+        .max_connections(10)
+        .acquire_timeout(std::time::Duration::from_secs(30))
+        .idle_timeout(std::time::Duration::from_secs(300))
+}
+
 // ── error type ────────────────────────────────────────────────────────────────
 
 #[derive(Debug, thiserror::Error)]
@@ -36,9 +48,7 @@ impl PoolRegistry {
 
     /// Register (or replace) the pool for a source-component link.
     pub async fn add(&self, source_id: &str, database_url: &str) -> Result<(), PoolError> {
-        let pool = MySqlPoolOptions::new()
-            .max_connections(5)
-            .acquire_timeout(std::time::Duration::from_secs(3))
+        let pool = pool_options()
             .connect_lazy(database_url)
             .map_err(|e| PoolError::InvalidUrl {
                 url: database_url.to_string(),
@@ -81,9 +91,7 @@ impl PoolRegistry {
             }
         }
         // Slow path: create a lazy pool and cache it
-        let pool = MySqlPoolOptions::new()
-            .max_connections(5)
-            .acquire_timeout(std::time::Duration::from_secs(3))
+        let pool = pool_options()
             .connect_lazy(connection_url)
             .map_err(|e| PoolError::InvalidUrl {
                 url: connection_url.to_string(),

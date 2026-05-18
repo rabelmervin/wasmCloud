@@ -2484,6 +2484,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "graphily-compiler-provider"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "wash-runtime",
+ "wasmtime",
+]
+
+[[package]]
 name = "graphily-mysql-provider"
 version = "0.1.0"
 dependencies = [
@@ -5389,6 +5404,7 @@ dependencies = [
  "base64 0.22.1",
  "bytes",
  "encoding_rs",
+ "futures-channel",
  "futures-core",
  "futures-util",
  "h2",
@@ -7619,6 +7635,7 @@ dependencies = [
  "etcetera 0.10.0",
  "figment",
  "flate2",
+ "graphily-compiler-provider",
  "graphily-mysql-provider",
  "http",
  "http-body-util",

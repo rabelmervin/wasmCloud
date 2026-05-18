@@ -63,6 +63,7 @@ impl<'a> bindings::graphily::mysql::mysql_api::Host for ActiveCtx<'a> {
         sql: String,
         params: Vec<String>,
     ) -> wasmtime::Result<Result<bindings::graphily::mysql::mysql_api::SqlResult, String>> {
+        tracing::info!(plugin = "graphily-mysql", sql = %sql, "execute_mutation called");
         let Some(plugin) = crate::GLOBAL_PROVIDER.get() else {
             return Ok(Err("MysqlProvider not initialized — host.start() not called".to_string()));
         };
@@ -70,14 +71,19 @@ impl<'a> bindings::graphily::mysql::mysql_api::Host for ActiveCtx<'a> {
             Ok(p) => p,
             Err(e) => return Ok(Err(e.to_string())),
         };
-        Ok(crate::executor::execute_mutation(&pool, &sql, params)
-            .await
-            .map(|r| bindings::graphily::mysql::mysql_api::SqlResult {
-                columns: r.columns,
-                rows: r.rows,
-                rows_affected: r.rows_affected,
-                last_insert_id: r.last_insert_id,
-            }))
+        let result = crate::executor::execute_mutation(&pool, &sql, params).await;
+        tracing::info!(
+            plugin = "graphily-mysql",
+            rows_affected = result.as_ref().map(|r| r.rows_affected).unwrap_or(0),
+            last_insert_id = result.as_ref().ok().and_then(|r| r.last_insert_id).unwrap_or(0),
+            "execute_mutation done"
+        );
+        Ok(result.map(|r| bindings::graphily::mysql::mysql_api::SqlResult {
+            columns: r.columns,
+            rows: r.rows,
+            rows_affected: r.rows_affected,
+            last_insert_id: r.last_insert_id,
+        }))
     }
 
     async fn execute_transaction(
@@ -85,6 +91,7 @@ impl<'a> bindings::graphily::mysql::mysql_api::Host for ActiveCtx<'a> {
         connection_url: String,
         statements: Vec<(String, Vec<String>)>,
     ) -> wasmtime::Result<Result<Vec<bindings::graphily::mysql::mysql_api::SqlResult>, String>> {
+        tracing::info!(plugin = "graphily-mysql", count = statements.len(), "execute_transaction called");
         let Some(plugin) = crate::GLOBAL_PROVIDER.get() else {
             return Ok(Err("MysqlProvider not initialized — host.start() not called".to_string()));
         };
@@ -92,18 +99,18 @@ impl<'a> bindings::graphily::mysql::mysql_api::Host for ActiveCtx<'a> {
             Ok(p) => p,
             Err(e) => return Ok(Err(e.to_string())),
         };
-        Ok(crate::executor::execute_transaction(&pool, statements)
-            .await
-            .map(|v| {
-                v.into_iter()
-                    .map(|r| bindings::graphily::mysql::mysql_api::SqlResult {
-                        columns: r.columns,
-                        rows: r.rows,
-                        rows_affected: r.rows_affected,
-                        last_insert_id: r.last_insert_id,
-                    })
-                    .collect()
-            }))
+        let result = crate::executor::execute_transaction(&pool, statements).await;
+        tracing::info!(plugin = "graphily-mysql", ok = result.is_ok(), "execute_transaction done");
+        Ok(result.map(|v| {
+            v.into_iter()
+                .map(|r| bindings::graphily::mysql::mysql_api::SqlResult {
+                    columns: r.columns,
+                    rows: r.rows,
+                    rows_affected: r.rows_affected,
+                    last_insert_id: r.last_insert_id,
+                })
+                .collect()
+        }))
     }
 
     async fn ping(

@@ -55,7 +55,8 @@ wasm-metadata = { workspace = true }
 wasm-pkg-client = { workspace = true }
 wasm-pkg-core = { workspace = true }
 wash-runtime = { workspace = true, features = ["washlet", "oci", "wasi-config", "wasi-logging", "wasi-blobstore", "wasi-keyvalue", "wasmcloud-postgres", "wasi-otel"] }
-graphily-mysql-provider = { workspace = true }
+graphily-mysql-provider    = { workspace = true }
+graphily-compiler-provider = { workspace = true }
 wit-component = { workspace = true }
 
 # Enable WebGPU support on non-Windows platforms
