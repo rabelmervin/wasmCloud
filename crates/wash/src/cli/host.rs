@@ -3,6 +3,7 @@ use std::{net::SocketAddr, path::PathBuf, sync::Arc, time::Duration};
 use anyhow::Context as _;
 use clap::Args;
 use graphily_mysql_provider::MysqlProvider;
+use graphily_compiler_provider::CompilerProvider;
 use tracing::info;
 use wash_runtime::{
     engine::{Engine, WasmProposal},
@@ -820,6 +821,7 @@ impl CliCommand for HostCommand {
                     ]),
             ))?
             .with_plugin(Arc::new(MysqlProvider::new()))?
+            .with_plugin(Arc::new(CompilerProvider::new()))?
             .with_meters(Meters::new(ctx.meters()));
 
         #[cfg(feature = "wasm_component_model_implements")]

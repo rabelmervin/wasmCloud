@@ -10,6 +10,7 @@ members = [
     # default-members so normal builds/tests don't pull it in.
     "xtask",
     "host-plugin",
+    "compiler-plugin",
 ]
 
 [workspace.package]
@@ -136,7 +137,8 @@ wasmtime-wasi-http = { version = "47.0.4", default-features = false }
 wasmtime-wasi-tls = { version = "47.0.4", default-features = false }
 wit-component = { version = "0.254.0", default-features = false }
 wash-runtime = { path = "crates/wash-runtime", default-features = false }
-graphily-mysql-provider = { path = "host-plugin", default-features = false }
+graphily-mysql-provider     = { path = "host-plugin",     default-features = false }
+graphily-compiler-provider  = { path = "compiler-plugin", default-features = false }
 sqlx = { version = "0.8", default-features = false }
 wat = { version = "1.254.0", default-features = false }
 zeroize = { version = "1.8", default-features = false, features = ["alloc"] }

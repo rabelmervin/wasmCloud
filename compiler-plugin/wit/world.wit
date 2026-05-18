@@ -1,0 +1,21 @@
+package kompilre:compiler@0.1.0;
+
+interface compiler-api {
+    record entity-file {
+        name: string,
+        content: string,
+    }
+
+    /// Receive generated entity .rs files, run wash build, push to OCI, deploy to wasmCloud.
+    compile-and-deploy: func(
+        files: list<entity-file>,
+        registry-url: string,
+        image-tag: string,
+    ) -> result<string, string>;
+}
+
+/// Host-side world: the host (wash-runtime plugin) fulfils these imports
+/// for any WASM component that imports kompilre:compiler/compiler-api.
+world compiler-host {
+    import compiler-api;
+}
