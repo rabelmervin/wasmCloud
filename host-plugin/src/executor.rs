@@ -118,6 +118,22 @@ pub async fn execute_mutation(
     sql: &str,
     params: Vec<String>,
 ) -> Result<SqlResult, String> {
+    // MySQL rejects control statements via the prepared-statement protocol (error 1295).
+    // Execute them as raw text queries instead.
+    let sql_upper = sql.trim().to_uppercase();
+    let is_control = matches!(
+        sql_upper.as_str(),
+        "START TRANSACTION" | "BEGIN" | "COMMIT" | "ROLLBACK" | "UNLOCK TABLES"
+    ) || sql_upper.starts_with("LOCK TABLES");
+
+    if is_control {
+        sqlx::raw_sql(sql)
+            .execute(pool)
+            .await
+            .map_err(|e| format!("mutation error: {e}"))?;
+        return Ok(SqlResult::empty());
+    }
+
     let args = build_args(&params)?;
     let result = sqlx::query_with(sql, args)
         .execute(pool)

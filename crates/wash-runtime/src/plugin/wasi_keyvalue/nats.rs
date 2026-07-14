@@ -284,47 +284,44 @@ impl<'a> bindings::wasi::keyvalue::atomics::Host for ActiveCtx<'a> {
 
         let bucket_handle = self.table.get(&bucket)?;
 
-        let (entry_revision, entry_value) = match bucket_handle.kv.entry(&key).await {
-            Ok(Some(mut e)) => {
-                let revision = Some(e.revision);
-                let value = e.value.get_u64();
-                (revision, value)
-            }
-            Ok(None) => (None, 0),
-            Err(e) => {
-                tracing::error!("JetStream error getting key entry: {}", e);
-                return Ok(Err(StoreError::Other(format!("JetStream error: {}", e))));
-            }
-        };
 
-        let new_value = entry_value + delta;
-        let entry_bytes = Bytes::from((new_value).to_be_bytes().to_vec());
+        const MAX_RETRIES: usize = 16;
 
-        // Here's were CAS happens
-        // If we have a revision, we try to update the entry with it
-        // If we don't have a revision, we try to create the entry
-        match entry_revision {
-            Some(rev) => {
-                let res = bucket_handle.kv.update(&key, entry_bytes, rev).await;
-                match res {
-                    Ok(_) => Ok(Ok(new_value)),
-                    Err(e) => {
-                        tracing::error!("JetStream error updating key: {}", e);
-                        Ok(Err(StoreError::Other(format!("JetStream error: {}", e))))
-                    }
+        for attempt in 0..MAX_RETRIES {
+            let (entry_revision, entry_value) = match bucket_handle.kv.entry(&key).await {
+                Ok(Some(mut e)) => (Some(e.revision), e.value.get_u64()),
+                Ok(None) => (None, 0),
+                Err(e) => {
+                    tracing::error!("JetStream error reading key (attempt {}): {}", attempt, e);
+                    return Ok(Err(StoreError::Other(format!("JetStream error: {}", e))));
                 }
-            }
-            None => {
-                let res = bucket_handle.kv.put(key.clone(), entry_bytes).await;
-                match res {
-                    Ok(_) => Ok(Ok(new_value)),
-                    Err(e) => {
-                        tracing::error!("JetStream error putting key: {}", e);
-                        Ok(Err(StoreError::Other(format!("JetStream error: {}", e))))
-                    }
+            };
+
+            let new_value = entry_value + delta;
+            let entry_bytes = Bytes::from(new_value.to_be_bytes().to_vec());
+
+            let cas_result = match entry_revision {
+                Some(rev) => bucket_handle.kv.update(&key, entry_bytes, rev).await.map(|_| ()).map_err(|e| e.to_string()),
+                None      => bucket_handle.kv.put(key.clone(), entry_bytes).await.map(|_| ()).map_err(|e| e.to_string()),
+            };
+
+            match cas_result {
+                Ok(()) => return Ok(Ok(new_value)),   // committed — same as Redis INCR
+                Err(_) => {
+                    // CAS failed: another request committed first.
+                    // Retry immediately with the fresh value (like Redis serializes).
+                    tracing::debug!("CAS conflict on key '{}', retrying (attempt {})", key, attempt + 1);
+                    continue;
                 }
             }
         }
+
+        // All retries exhausted — extremely unlikely under normal load.
+        // Return error so callers can decide (rate limiter fails open to preserve availability).
+        tracing::warn!("increment: exhausted {} CAS retries for key '{}'", MAX_RETRIES, key);
+        Ok(Err(StoreError::Other(format!(
+            "increment: too many CAS conflicts for key '{}'", key
+        ))))
     }
 }
 

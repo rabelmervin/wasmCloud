@@ -133,9 +133,15 @@ fn main() {
         "http-allowed-hosts",
     ];
 
-    // Rebuild fixtures if examples changed
-    check_and_rebuild_fixtures(&workspace_dir, &tracked_examples)
-        .expect("failed to check/rebuild fixtures");
+    // Rebuild fixtures if examples changed.
+    // Set SKIP_FIXTURE_BUILD=1 to skip this step (faster production builds).
+    let skip = env::var("SKIP_FIXTURE_BUILD")
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false);
+    if !skip {
+        check_and_rebuild_fixtures(&workspace_dir, &tracked_examples)
+            .expect("failed to check/rebuild fixtures");
+    }
 
     let top_proto_dir = workspace_dir.join("proto");
     let proto_dir = top_proto_dir.join("wasmcloud/runtime/v2");

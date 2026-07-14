@@ -4,10 +4,6 @@ version = "0.1.0"
 edition = "2021"
 description = "Graphily Compiler host plugin — HostPlugin for kompilre:compiler/compiler-api, integrated into the wasmCloud wash host"
 
-[[bin]]
-name = "test_compile"
-path = "src/bin/test_compile.rs"
-
 [dependencies]
 wash-runtime = { workspace = true }
 wasmtime     = { workspace = true, features = ["component-model"] }
