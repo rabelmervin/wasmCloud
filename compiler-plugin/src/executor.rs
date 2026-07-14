@@ -25,6 +25,25 @@ pub fn compile_and_deploy(
         tracing::info!(plugin = "kompilre-compiler", file = %name, "wrote entity file");
     }
 
+    // ── Step 1b: write schema.json to repo root ──────────────────────────────
+    // proc macros (entities_macros::intr! / register_temporal_columns!) read
+    // schema.json at compile time via the path "../../schema.json" relative to
+    // crates/entities/ — which resolves to the repo root.
+    // The schema-compiler WASM passes the schema JSON as a file named "schema.json".
+    if let Some((_, schema_content)) = files.iter().find(|(n, _)| n == "schema.json") {
+        let schema_path = root.join("schema.json");
+        // Pretty-print for human readability; fall back to raw bytes if the
+        // payload isn't valid JSON (the proc macros accept either form).
+        let pretty = serde_json::from_str::<serde_json::Value>(schema_content)
+            .and_then(|v| serde_json::to_string_pretty(&v))
+            .unwrap_or_else(|_| schema_content.clone());
+        std::fs::write(&schema_path, pretty)
+            .map_err(|e| format!("write schema.json to repo root: {e}"))?;
+        tracing::info!(plugin = "kompilre-compiler", path = %schema_path.display(), "wrote schema.json to repo root");
+    } else {
+        tracing::warn!(plugin = "kompilre-compiler", "schema.json not found in entity files — proc macros may fail");
+    }
+
     // ── Step 2: wash build ───────────────────────────────────────────────────
     let entities_crate = root.join("crates/entities");
     tracing::info!(plugin = "kompilre-compiler", path = %entities_crate.display(), "running wash build");
@@ -42,9 +61,9 @@ pub fn compile_and_deploy(
     tracing::info!(plugin = "kompilre-compiler", "wash build succeeded");
 
     // ── Step 3: OCI push ─────────────────────────────────────────────────────
-    // wasmcloud.toml destination = "../../build/..." → relative to crates/entities/
-    // resolves to <repo_root>/build/graphily_entities_s.wasm
-    let wasm_path = root.join("build/graphily_entities_s.wasm");
+    // wasmcloud.toml destination = "../../build/entities.wasm" → relative to
+    // crates/entities/, resolves to <repo_root>/build/entities.wasm
+    let wasm_path = root.join("build/entities.wasm");
     if !wasm_path.exists() {
         return Err(format!("built wasm not found at {}", wasm_path.display()));
     }

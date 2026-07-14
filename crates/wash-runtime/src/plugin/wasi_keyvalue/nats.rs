@@ -325,55 +325,68 @@ impl<'a> bindings::wasi::keyvalue::atomics::Host for ActiveCtx<'a> {
 
         let bucket_handle = self.table.get(&bucket)?;
 
-        let (entry_revision, entry_value) = match bucket_handle.kv.entry(&key).await {
-            Ok(Some(mut e)) => {
-                let revision = Some(e.revision);
-                // Tolerate a malformed (non-8-byte) value as 0 rather than
-                // panicking: `Buf::get_u64` traps the guest if the value has
-                // fewer than 8 bytes.
-                let value = if e.value.len() >= 8 {
-                    e.value.get_u64()
-                } else {
-                    0
-                };
-                (revision, value)
-            }
-            Ok(None) => (None, 0),
-            Err(e) => {
-                tracing::error!("JetStream error getting key entry: {e}");
-                return Ok(Err(StoreError::Other(format!("JetStream error: {e}"))));
-            }
-        };
+        // Compare-and-set, retried on conflict: a concurrent increment that commits first
+        // bumps the revision, so ours is rejected and re-read rather than lost (Redis INCR
+        // semantics, which the rate limiter relies on).
+        const MAX_RETRIES: usize = 16;
 
-        // saturating, so an overflowing increment can't panic-trap the guest.
-        let new_value = entry_value.saturating_add(delta);
-        let entry_bytes = Bytes::from((new_value).to_be_bytes().to_vec());
-
-        // Here's were CAS happens
-        // If we have a revision, we try to update the entry with it
-        // If we don't have a revision, we try to create the entry
-        match entry_revision {
-            Some(rev) => {
-                let res = bucket_handle.kv.update(&key, entry_bytes, rev).await;
-                match res {
-                    Ok(_) => Ok(Ok(new_value)),
-                    Err(e) => {
-                        tracing::error!("JetStream error updating key: {e}");
-                        Ok(Err(StoreError::Other(format!("JetStream error: {e}"))))
-                    }
+        for attempt in 0..MAX_RETRIES {
+            let (entry_revision, entry_value) = match bucket_handle.kv.entry(&key).await {
+                Ok(Some(mut e)) => {
+                    let revision = Some(e.revision);
+                    // Tolerate a malformed (non-8-byte) value as 0 rather than
+                    // panicking: `Buf::get_u64` traps the guest if the value has
+                    // fewer than 8 bytes.
+                    let value = if e.value.len() >= 8 {
+                        e.value.get_u64()
+                    } else {
+                        0
+                    };
+                    (revision, value)
                 }
-            }
-            None => {
-                let res = bucket_handle.kv.put(key.clone(), entry_bytes).await;
-                match res {
-                    Ok(_) => Ok(Ok(new_value)),
-                    Err(e) => {
-                        tracing::error!("JetStream error putting key: {e}");
-                        Ok(Err(StoreError::Other(format!("JetStream error: {e}"))))
-                    }
+                Ok(None) => (None, 0),
+                Err(e) => {
+                    tracing::error!("JetStream error getting key entry: {e}");
+                    return Ok(Err(StoreError::Other(format!("JetStream error: {e}"))));
+                }
+            };
+
+            // saturating, so an overflowing increment can't panic-trap the guest.
+            let new_value = entry_value.saturating_add(delta);
+            let entry_bytes = Bytes::from((new_value).to_be_bytes().to_vec());
+
+            // With a revision, update only if nobody wrote since we read. Without one,
+            // `create` (not `put`) so two first increments can't both "win" and lose one.
+            let cas_result = match entry_revision {
+                Some(rev) => bucket_handle
+                    .kv
+                    .update(&key, entry_bytes, rev)
+                    .await
+                    .map(|_| ())
+                    .map_err(|e| e.to_string()),
+                None => bucket_handle
+                    .kv
+                    .create(&key, entry_bytes)
+                    .await
+                    .map(|_| ())
+                    .map_err(|e| e.to_string()),
+            };
+
+            match cas_result {
+                Ok(()) => return Ok(Ok(new_value)),
+                Err(e) => {
+                    tracing::debug!("CAS conflict on key '{key}' (attempt {}): {e}", attempt + 1);
+                    continue;
                 }
             }
         }
+
+        // All retries exhausted — extremely unlikely under normal load.
+        // Return error so callers can decide (rate limiter fails open to preserve availability).
+        tracing::warn!("increment: exhausted {} CAS retries for key '{}'", MAX_RETRIES, key);
+        Ok(Err(StoreError::Other(format!(
+            "increment: too many CAS conflicts for key '{}'", key
+        ))))
     }
 }
 
