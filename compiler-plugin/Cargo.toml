@@ -13,6 +13,19 @@ anyhow       = { workspace = true }
 tracing      = { workspace = true }
 serde        = { workspace = true, features = ["derive"] }
 serde_json   = "1"
+sha2         = "0.10"
+# Version pair inherited from the workspace (kube 1.x / k8s-openapi 0.25) — they are
+# coupled, so never pin them independently here.
+# `jsonpatch` gates Patch::Json — without it the variant does not exist.
+kube         = { workspace = true, features = ["client", "rustls-tls", "jsonpatch"] }
+k8s-openapi  = { workspace = true, features = ["latest"] }
+# kube::api::Patch::Json takes a json_patch::Patch, not a raw serde_json::Value.
+# MUST match the version kube-core links (1.1.0 → json-patch 4.x). Another crate in
+# the graph pulls 3.0.1; picking that one yields "expected json_patch::Patch, found a
+# different json_patch::Patch".
+json-patch   = "4"
+# Parses the multi-document YAML that `helm template` emits when provisioning an app.
+serde_yaml_ng = "0.10"
 reqwest      = { version = "0.12", features = ["blocking", "json"], default-features = false, optional = true }
 
 [features]

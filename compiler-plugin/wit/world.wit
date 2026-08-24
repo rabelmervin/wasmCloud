@@ -6,11 +6,22 @@ interface compiler-api {
         content: string,
     }
 
-    /// Receive generated entity .rs files, run wash build, push to OCI, deploy to wasmCloud.
+    /// Hostname + database for an app that does not have a workload yet. Present only on
+    /// an onboarding request; absent for every schema change. When absent and no workload
+    /// carries the app-id, the deploy is REFUSED rather than provisioning something — so a
+    /// plain compile can never create a tenant.
+    record provision-spec {
+        host: string,
+        db-url: string,
+    }
+
+    /// Receive generated entity .rs files, run wash build, push to OCI, then either patch
+    /// the app's existing workload or — with `provision` — create it.
     compile-and-deploy: func(
         files: list<entity-file>,
         registry-url: string,
-        image-tag: string,
+        app-id: string,
+        provision: option<provision-spec>,
     ) -> result<string, string>;
 }
 

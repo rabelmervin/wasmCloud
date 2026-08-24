@@ -142,8 +142,13 @@ impl HostPlugin for MysqlProvider {
 
     fn world(&self) -> WitWorld {
         WitWorld {
+            // Advertised in BOTH sets deliberately. Upstream plugins put a provided
+            // capability in `imports` (wasi:keyvalue, wasi:config, blobstore, postgres
+            // all do), while the nine built-in wasi interfaces sit in `exports` — so the
+            // semantics are ambiguous here, and `log_interfaces` only ever prints
+            // `exports`. Listing it in both removes the guess.
             imports: HashSet::from([WitInterface::from("graphily:mysql/mysql-api@0.1.0")]),
-            exports: HashSet::new(),
+            exports: HashSet::from([WitInterface::from("graphily:mysql/mysql-api@0.1.0")]),
         }
     }
 

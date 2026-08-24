@@ -29,13 +29,15 @@ impl<'a> bindings::kompilre::compiler::compiler_api::Host for ActiveCtx<'a> {
         &mut self,
         files: Vec<bindings::kompilre::compiler::compiler_api::EntityFile>,
         registry_url: String,
-        image_tag: String,
+        app_id: String,
+        provision: Option<bindings::kompilre::compiler::compiler_api::ProvisionSpec>,
     ) -> wasmtime::Result<Result<String, String>> {
         tracing::info!(
             plugin = "kompilre-compiler",
             files = files.len(),
             registry = %registry_url,
-            tag = %image_tag,
+            app_id = %app_id,
+            provision = provision.is_some(),
             "compile-and-deploy called"
         );
 
@@ -44,6 +46,12 @@ impl<'a> bindings::kompilre::compiler::compiler_api::Host for ActiveCtx<'a> {
         };
 
         let repo_root = plugin.repo_root.clone();
+        // The spawn_blocking closure takes ownership, and the bindgen record is not `Send`
+        // across that boundary in a useful way — copy it into the executor's own type.
+        let provision_owned = provision.map(|p| crate::executor::Provision {
+            host: p.host,
+            db_url: p.db_url,
+        });
         let entity_files: Vec<(String, String)> = files
             .into_iter()
             .map(|f| (f.name, f.content))
@@ -61,7 +69,8 @@ impl<'a> bindings::kompilre::compiler::compiler_api::Host for ActiveCtx<'a> {
                     &entity_files,
                     &repo_root,
                     &registry_url,
-                    &image_tag,
+                    &app_id,
+                    provision_owned.as_ref(),
                 )
             }),
         )
@@ -88,8 +97,13 @@ impl HostPlugin for CompilerProvider {
 
     fn world(&self) -> WitWorld {
         WitWorld {
+            // Advertised in BOTH sets deliberately. Upstream plugins put a provided
+            // capability in `imports` (wasi:keyvalue, wasi:config, blobstore, postgres
+            // all do), while the nine built-in wasi interfaces sit in `exports` — so the
+            // semantics are ambiguous here, and `log_interfaces` only ever prints
+            // `exports`. Listing it in both removes the guess.
             imports: HashSet::from([WitInterface::from("kompilre:compiler/compiler-api@0.1.0")]),
-            exports: HashSet::new(),
+            exports: HashSet::from([WitInterface::from("kompilre:compiler/compiler-api@0.1.0")]),
         }
     }
 
