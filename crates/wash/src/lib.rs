@@ -1,3 +1,10 @@
+// Raised for the same reason as main.rs: computing the layout of the deeply nested
+// async fn in cli::dev::handle() exceeds the default limit of 128. main.rs already
+// carried this, but lib.rs is a separate crate root and does not inherit it, so the
+// bin target built while the lib target failed with "queries overflow the depth
+// limit". Whether it trips depends on the rustc version: 1.94.1 stays under the
+// default, newer stables do not.
+#![recursion_limit = "512"]
 #![doc = include_str!("../../../README.md")]
 
 /// The current version of the wash package, set at build time
