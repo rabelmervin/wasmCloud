@@ -26,6 +26,26 @@ pub struct Provision {
     pub db_url: String,
 }
 
+/// Write `content` to `path` only when it differs from what is already there.
+///
+/// Cargo decides a source file is dirty by comparing mtime, not content, so rewriting a
+/// byte-identical file still forces a full rebuild of entities-macros and entities —
+/// measured at 250s, or 51s once codegen-units is raised. Since schema-compiler emits the
+/// whole generated tree on every compile, most of those files are identical most of the
+/// time. Skipping the write leaves mtime alone and lets cargo skip the crate entirely.
+///
+/// Returns true when the file was actually written.
+fn write_if_changed(path: &Path, content: &str) -> Result<bool, String> {
+    if let Ok(existing) = std::fs::read_to_string(path) {
+        if existing == content {
+            return Ok(false);
+        }
+    }
+    std::fs::write(path, content)
+        .map_err(|e| format!("write {}: {e}", path.display()))?;
+    Ok(true)
+}
+
 pub fn compile_and_deploy(
     files: &[(String, String)],
     repo_root: &str,
@@ -61,12 +81,20 @@ pub fn compile_and_deploy(
     std::fs::create_dir_all(&generated_dir)
         .map_err(|e| format!("create generated dir: {e}"))?;
 
+    let mut changed_files = 0usize;
     for (name, content) in files {
         let path = generated_dir.join(name);
-        std::fs::write(&path, content)
-            .map_err(|e| format!("write {name}: {e}"))?;
-        tracing::info!(plugin = "kompilre-compiler", file = %name, "wrote entity file");
+        if write_if_changed(&path, content)? {
+            changed_files += 1;
+            tracing::info!(plugin = "kompilre-compiler", file = %name, "wrote entity file");
+        }
     }
+    tracing::info!(
+        plugin = "kompilre-compiler",
+        changed = changed_files,
+        total = files.len(),
+        "entity files written (unchanged files left untouched so cargo can skip the rebuild)"
+    );
 
     // ── Step 1b: write schema.json to repo root ──────────────────────────────
     // proc macros (entities_macros::intr! / register_temporal_columns!) read
@@ -80,9 +108,11 @@ pub fn compile_and_deploy(
         let pretty = serde_json::from_str::<serde_json::Value>(schema_content)
             .and_then(|v| serde_json::to_string_pretty(&v))
             .unwrap_or_else(|_| schema_content.clone());
-        std::fs::write(&schema_path, pretty)
-            .map_err(|e| format!("write schema.json to repo root: {e}"))?;
-        tracing::info!(plugin = "kompilre-compiler", path = %schema_path.display(), "wrote schema.json to repo root");
+        if write_if_changed(&schema_path, &pretty)? {
+            tracing::info!(plugin = "kompilre-compiler", path = %schema_path.display(), "wrote schema.json to repo root");
+        } else {
+            tracing::info!(plugin = "kompilre-compiler", "schema.json unchanged — left untouched");
+        }
     } else {
         tracing::warn!(plugin = "kompilre-compiler", "schema.json not found in entity files — proc macros may fail");
     }
