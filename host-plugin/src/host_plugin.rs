@@ -5,7 +5,7 @@ use std::collections::HashSet;
 use wash_runtime::{
     engine::ctx::{ActiveCtx, SharedCtx, extract_active_ctx},
     engine::workload::WorkloadItem,
-    plugin::HostPlugin,
+    plugin::{HostPlugin, WitInterfaces},
     wit::{WitInterface, WitWorld},
 };
 
@@ -161,7 +161,7 @@ impl HostPlugin for MysqlProvider {
     async fn on_workload_item_bind<'a>(
         &self,
         item: &mut WorkloadItem<'a>,
-        _interfaces: HashSet<WitInterface>,
+        _interfaces: WitInterfaces<'_>,
     ) -> anyhow::Result<()> {
         tracing::info!(plugin = "graphily-mysql", "Binding graphily:mysql/mysql-api to workload component");
         bindings::graphily::mysql::mysql_api::add_to_linker::<_, SharedCtx>(

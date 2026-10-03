@@ -5,7 +5,7 @@ use std::collections::HashSet;
 use wash_runtime::{
     engine::ctx::{ActiveCtx, SharedCtx, extract_active_ctx},
     engine::workload::WorkloadItem,
-    plugin::HostPlugin,
+    plugin::{HostPlugin, WitInterfaces},
     wit::{WitInterface, WitWorld},
 };
 
@@ -120,7 +120,7 @@ impl HostPlugin for CompilerProvider {
     async fn on_workload_item_bind<'a>(
         &self,
         item: &mut WorkloadItem<'a>,
-        _interfaces: HashSet<WitInterface>,
+        _interfaces: WitInterfaces<'_>,
     ) -> anyhow::Result<()> {
         tracing::info!(plugin = "kompilre-compiler", "Binding kompilre:compiler/compiler-api to workload component");
         bindings::kompilre::compiler::compiler_api::add_to_linker::<_, SharedCtx>(
