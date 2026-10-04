@@ -123,34 +123,54 @@ impl NatsKeyValue {
     /// opens racing here all succeed. Verified by
     /// `tests::test_reopening_bucket_preserves_entries`.
     ///
-    /// Any error is therefore a genuine failure (permission, connection,
-    /// JetStream disabled, or a pre-existing bucket created with a *different*
-    /// config) and is surfaced rather than masked.
+    /// If the create fails, the bucket is opened as it already exists. The common
+    /// case is a bucket provisioned out-of-band with its own config — e.g. a
+    /// `max_age` (TTL) set by the platform's NATS setup — which JetStream rejects
+    /// as "stream name already in use with a different configuration" (10058).
+    /// The provisioned config is authoritative; this host must not require every
+    /// bucket to use defaults. The same fallback covers a connection that may
+    /// open but not create buckets.
     ///
-    /// Note this means `open` requires stream-create permission even for an
-    /// already-existing bucket. That is fine today because the NATS connection —
-    /// and therefore its permissions — is owned by the Host and shared across
-    /// all workloads, not scoped per workload. If per-workload NATS credentials
-    /// are ever introduced, a workload allowed to open but not create buckets
-    /// would break here, and this should fall back to a get-then-create path.
+    /// Only when opening the existing bucket fails as well (permission,
+    /// connection, JetStream disabled, bucket genuinely absent) is an error
+    /// surfaced, and it is the original create error, which names the real cause.
     async fn get_or_create_bucket(
         &self,
         identifier: &str,
     ) -> Result<async_nats::jetstream::kv::Store, String> {
-        self.client
+        let create_err = match self
+            .client
             .create_key_value(async_nats::jetstream::kv::Config {
                 bucket: identifier.to_string(),
                 ..Default::default()
             })
             .await
-            .map_err(|e| {
+        {
+            Ok(store) => return Ok(store),
+            Err(e) => e,
+        };
+
+        match self.client.get_key_value(identifier).await {
+            Ok(store) => {
+                tracing::debug!(
+                    bucket = %identifier,
+                    create_error = %create_err,
+                    "keyvalue bucket exists with its own config; opened as-is"
+                );
+                Ok(store)
+            }
+            Err(open_err) => {
                 tracing::error!(
-                    error = ?e,
+                    error = ?create_err,
+                    open_error = %open_err,
                     bucket = %identifier,
                     "Failed to open keyvalue bucket in JetStream"
                 );
-                format!("failed to open keyvalue bucket in JetStream({identifier}): {e}")
-            })
+                Err(format!(
+                    "failed to open keyvalue bucket in JetStream({identifier}): {create_err}"
+                ))
+            }
+        }
     }
 }
 
@@ -746,6 +766,43 @@ mod tests {
             Some(b"hello".as_slice()),
             "entry was lost when re-opening the bucket"
         );
+
+        Ok(())
+    }
+
+    /// A bucket provisioned out-of-band with a non-default config (here a TTL,
+    /// as `graphily-rate-limits` is) must open as-is: the default-config create
+    /// is rejected by JetStream (10058), and that must not fail the open or
+    /// replace the provisioned TTL.
+    #[tokio::test]
+    #[ignore = "requires Docker (NATS); run with `cargo test --include-ignored`"]
+    async fn test_opening_bucket_provisioned_with_ttl_keeps_its_config() -> anyhow::Result<()> {
+        let (_container, client) = start_nats_jetstream().await?;
+        let bucket = format!("kv-ttl-{}", uuid::Uuid::new_v4());
+        let ttl = std::time::Duration::from_secs(48 * 3600);
+
+        let provisioned = async_nats::jetstream::new(client.clone())
+            .create_key_value(async_nats::jetstream::kv::Config {
+                bucket: bucket.clone(),
+                max_age: ttl,
+                ..Default::default()
+            })
+            .await?;
+        provisioned
+            .put("counter", bytes::Bytes::from_static(b"1"))
+            .await?;
+
+        let kv = NatsKeyValue::new(&client);
+        let opened = kv
+            .get_or_create_bucket(&bucket)
+            .await
+            .map_err(|e| anyhow::anyhow!("opening a TTL bucket failed: {e}"))?;
+
+        let value = opened.get("counter").await?;
+        assert_eq!(value.as_deref(), Some(b"1".as_slice()), "entry was lost");
+
+        let status = opened.status().await?;
+        assert_eq!(status.max_age(), ttl, "the provisioned TTL was replaced");
 
         Ok(())
     }
