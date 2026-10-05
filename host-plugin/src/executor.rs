@@ -7,7 +7,7 @@
 //! so parameter lists can be built at runtime without losing type safety.
 
 use sqlx::{
-    Column as _, Row as _,
+    Column as _, Row as _, TypeInfo as _,
     mysql::{MySqlArguments, MySqlPool, MySqlRow},
 };
 use sqlx::Arguments as _;
@@ -42,6 +42,13 @@ impl SqlResult {
 fn row_to_strings(row: &MySqlRow) -> Vec<Option<String>> {
     (0..row.len())
         .map(|i| {
+            // DECIMAL: sqlx's checked decoders refuse it for every type here (String, f64
+            // included), so it used to fall through to None and every decimal read as NULL.
+            // MySQL sends a DECIMAL as its text ("10.50"), so read those bytes as-is: exact
+            // value and scale, as Elixir returns them.
+            if row.columns()[i].type_info().name() == "DECIMAL" {
+                return row.try_get_unchecked::<Option<String>, _>(i).ok().flatten();
+            }
             // Try String (VARCHAR, TEXT, CHAR, DATE, DATETIME, TIMESTAMP)
             if let Ok(v) = row.try_get::<Option<String>, _>(i) {
                 return v;
