@@ -35,11 +35,35 @@ pub struct Provision {
 /// time. Skipping the write leaves mtime alone and lets cargo skip the crate entirely.
 ///
 /// Returns true when the file was actually written.
+/// Removes every `.rs` file under `dir` that is not in `keep`, then any folder left empty.
+/// Returns how many files were removed.
+fn remove_stale_rs(dir: &Path, keep: &std::collections::HashSet<std::path::PathBuf>) -> std::io::Result<usize> {
+    let mut removed = 0;
+    for entry in std::fs::read_dir(dir)? {
+        let path = entry?.path();
+        if path.is_dir() {
+            removed += remove_stale_rs(&path, keep)?;
+            if std::fs::read_dir(&path)?.next().is_none() {
+                std::fs::remove_dir(&path)?;
+            }
+        } else if path.extension().is_some_and(|e| e == "rs") && !keep.contains(&path) {
+            std::fs::remove_file(&path)?;
+            removed += 1;
+        }
+    }
+    Ok(removed)
+}
+
 fn write_if_changed(path: &Path, content: &str) -> Result<bool, String> {
     if let Ok(existing) = std::fs::read_to_string(path) {
         if existing == content {
             return Ok(false);
         }
+    }
+    // Generated files can sit in a folder of their own (`model_permissions/<table>.rs`).
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("create {}: {e}", parent.display()))?;
     }
     std::fs::write(path, content)
         .map_err(|e| format!("write {}: {e}", path.display()))?;
@@ -95,6 +119,18 @@ pub fn compile_and_deploy(
         total = files.len(),
         "entity files written (unchanged files left untouched so cargo can skip the rebuild)"
     );
+
+    // ── Step 1a: remove generated .rs files this compile no longer produces ─────
+    // A file left from an earlier layout breaks the build: `validation_sets.rs` next to the new
+    // `validation_sets/mod.rs` is the same module twice (E0761), and a table dropped from the
+    // app would linger. Only `.rs` files are removed; empty folders go with them.
+    let produced: std::collections::HashSet<std::path::PathBuf> =
+        files.iter().map(|(name, _)| generated_dir.join(name)).collect();
+    let removed = remove_stale_rs(&generated_dir, &produced)
+        .map_err(|e| format!("clean generated dir: {e}"))?;
+    if removed > 0 {
+        tracing::info!(plugin = "kompilre-compiler", removed, "removed stale generated files");
+    }
 
     // ── Step 1b: write schema.json to repo root ──────────────────────────────
     // proc macros (entities_macros::intr! / register_temporal_columns!) read
